@@ -85,9 +85,9 @@ fun MainScreen(viewModel: ExpenseViewModel) {
         try {
             val curr = Currency.getInstance(selectedCurrency)
             format.currency = curr
-            // Force using only the symbol by stripping the country/ISO code prefix
+            // Robust automatic prefix stripping (e.g., converts "US$" to "$")
             val symbols = (format as java.text.DecimalFormat).decimalFormatSymbols
-            val fullSymbol = curr.getSymbol(Locale.US) // Try US locale first for narrow symbols
+            val fullSymbol = curr.getSymbol(Locale.US)
             symbols.currencySymbol = fullSymbol
                 .replace(selectedCurrency, "") // Remove "USD"
                 .replace(selectedCurrency.take(2), "") // Remove "US"
@@ -167,14 +167,14 @@ fun MainScreen(viewModel: ExpenseViewModel) {
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
+                        containerColor = MaterialTheme.colorScheme.background,
                         scrolledContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
                     ),
                     scrollBehavior = scrollBehavior
                 )
             }
         },
-        containerColor = Color.Transparent,
+        containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             val activeTab = if (currentRoute == "main") tabs[pagerState.currentPage] else ""
             if (activeTab == "expenses" || activeTab == "home") {
