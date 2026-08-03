@@ -24,6 +24,9 @@ class ExpenseRepository(private val expenseDao: ExpenseDao, context: Context) {
     private val _isDarkMode = MutableStateFlow(sharedPrefs.getBoolean("is_dark_mode", false))
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
+    private val _selectedCurrency = MutableStateFlow(sharedPrefs.getString("selected_currency", "USD") ?: "USD")
+    val selectedCurrency: StateFlow<String> = _selectedCurrency.asStateFlow()
+
     fun updateBudget(newBudget: Double) {
         sharedPrefs.edit().putFloat("monthly_budget", newBudget.toFloat()).apply()
         _monthlyBudget.value = newBudget
@@ -42,6 +45,11 @@ class ExpenseRepository(private val expenseDao: ExpenseDao, context: Context) {
     fun updateDarkMode(isDark: Boolean) {
         sharedPrefs.edit().putBoolean("is_dark_mode", isDark).apply()
         _isDarkMode.value = isDark
+    }
+
+    fun updateCurrency(code: String) {
+        sharedPrefs.edit().putString("selected_currency", code).apply()
+        _selectedCurrency.value = code
     }
 
     fun getExpensesBetweenDates(startDate: Long, endDate: Long): Flow<List<Expense>> {

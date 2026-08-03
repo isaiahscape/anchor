@@ -43,6 +43,7 @@ class ExpenseViewModel(private val repository: ExpenseRepository) : ViewModel() 
     val profileName: StateFlow<String> = repository.profileName
     val profileImageUri: StateFlow<String?> = repository.profileImageUri
     val isDarkMode: StateFlow<Boolean> = repository.isDarkMode
+    val selectedCurrency: StateFlow<String> = repository.selectedCurrency
 
     fun updateBudget(newBudget: Double) {
         repository.updateBudget(newBudget)
@@ -58,6 +59,10 @@ class ExpenseViewModel(private val repository: ExpenseRepository) : ViewModel() 
 
     fun updateDarkMode(isDark: Boolean) {
         repository.updateDarkMode(isDark)
+    }
+
+    fun updateCurrency(code: String) {
+        repository.updateCurrency(code)
     }
 
     fun setMonth(year: Int, month: Int) {

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
@@ -61,10 +62,22 @@ fun MainScreen(viewModel: ExpenseViewModel) {
     val profileName by viewModel.profileName.collectAsStateWithLifecycle()
     val profileImageUri by viewModel.profileImageUri.collectAsStateWithLifecycle()
     val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
+    val selectedCurrency by viewModel.selectedCurrency.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<Expense?>(null) }
     var showProfileHub by remember { mutableStateOf(false) }
+    var showCurrencySelector by remember { mutableStateOf(false) }
+
+    val currencyFormatter = remember(selectedCurrency) {
+        NumberFormat.getCurrencyInstance().apply {
+            currency = try {
+                Currency.getInstance(selectedCurrency)
+            } catch (e: Exception) {
+                Currency.getInstance("USD")
+            }
+        }
+    }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
@@ -95,6 +108,9 @@ fun MainScreen(viewModel: ExpenseViewModel) {
                             IconButton(onClick = { ExportUtils.shareCsvAsText(context, expenses) }) {
                                 Icon(Icons.Default.Share, contentDescription = "Export to CSV")
                             }
+                        }
+                        IconButton(onClick = { showCurrencySelector = true }) {
+                            Icon(Icons.Default.Payments, contentDescription = "Select Currency")
                         }
                         IconButton(
                             onClick = { showProfileHub = true },
@@ -229,6 +245,7 @@ fun MainScreen(viewModel: ExpenseViewModel) {
                     expenses = expenses,
                     budget = budget,
                     selectedMonth = selectedMonth,
+                    currencyFormatter = currencyFormatter,
                     onUpdateBudget = { viewModel.updateBudget(it) },
                     onMonthSelected = { y, m -> viewModel.setMonth(y, m) },
                     onEditExpense = { expense -> expenseToEdit = expense }
@@ -237,6 +254,7 @@ fun MainScreen(viewModel: ExpenseViewModel) {
             composable("expenses") {
                 ExpensesListScreen(
                     expenses = expenses,
+                    currencyFormatter = currencyFormatter,
                     onDelete = { viewModel.deleteExpense(it.id) },
                     onEdit = { expense ->
                         expenseToEdit = expense
@@ -245,13 +263,15 @@ fun MainScreen(viewModel: ExpenseViewModel) {
             }
             composable("reports") {
                 ReportsScreen(
-                    expenses = expenses
+                    expenses = expenses,
+                    currencyFormatter = currencyFormatter
                 )
             }
             composable("settings") {
                 SettingsScreen(
                     isDarkMode = isDarkMode,
-                    onUpdateDarkMode = { viewModel.updateDarkMode(it) }
+                    onUpdateDarkMode = { viewModel.updateDarkMode(it) },
+                    onBack = { navController.popBackStack() }
                 )
             }
         }
@@ -259,6 +279,7 @@ fun MainScreen(viewModel: ExpenseViewModel) {
         if (showAddDialog || expenseToEdit != null) {
             ExpenseDialog(
                 expense = expenseToEdit,
+                currencyCode = selectedCurrency,
                 onDismiss = { 
                     showAddDialog = false
                     expenseToEdit = null
@@ -284,6 +305,74 @@ fun MainScreen(viewModel: ExpenseViewModel) {
                 onNavigateToSettings = { navController.navigate("settings") },
                 onDismiss = { showProfileHub = false }
             )
+        }
+
+        if (showCurrencySelector) {
+            CurrencySelectorBottomSheet(
+                selectedCurrency = selectedCurrency,
+                onCurrencySelected = { 
+                    viewModel.updateCurrency(it)
+                    showCurrencySelector = false
+                },
+                onDismiss = { showCurrencySelector = false }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CurrencySelectorBottomSheet(
+    selectedCurrency: String,
+    onCurrencySelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+    val currencies = listOf(
+        "USD" to "US Dollar ($)",
+        "EUR" to "Euro (€)",
+        "GBP" to "British Pound (£)",
+        "JPY" to "Japanese Yen (¥)",
+        "IDR" to "Indonesian Rupiah (Rp)",
+        "AUD" to "Australian Dollar ($)",
+        "CAD" to "Canadian Dollar ($)",
+        "CNY" to "Chinese Yuan (¥)",
+        "INR" to "Indian Rupee (₹)"
+    )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                "Select Currency",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+            )
+            
+            LazyColumn {
+                items(currencies) { (code, name) ->
+                    ListItem(
+                        headlineContent = { Text(name) },
+                        supportingContent = { Text(code) },
+                        leadingContent = {
+                            RadioButton(
+                                selected = selectedCurrency == code,
+                                onClick = null
+                            )
+                        },
+                        modifier = Modifier.clickable { onCurrencySelected(code) }
+                    )
+                }
+            }
         }
     }
 }
@@ -451,13 +540,13 @@ fun HomeScreen(
     expenses: List<Expense>,
     budget: Double,
     selectedMonth: Long,
+    currencyFormatter: NumberFormat,
     onUpdateBudget: (Double) -> Unit,
     onMonthSelected: (Int, Int) -> Unit,
     onEditExpense: (Expense) -> Unit
 ) {
     val totalExpense = expenses.sumOf { it.amount }
     val remainingBalance = budget - totalExpense
-    val currencyFormat = NumberFormat.getCurrencyInstance()
     
     var showBudgetDialog by remember { mutableStateOf(false) }
 
@@ -496,7 +585,7 @@ fun HomeScreen(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = currencyFormat.format(remainingBalance),
+                    text = currencyFormatter.format(remainingBalance),
                     style = MaterialTheme.typography.displayMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -507,11 +596,11 @@ fun HomeScreen(
                 ) {
                     Column {
                         Text("Total Budget", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                        Text(currencyFormat.format(budget), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(currencyFormatter.format(budget), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text("Total Expense", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                        Text(currencyFormat.format(totalExpense), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(currencyFormatter.format(totalExpense), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -550,7 +639,7 @@ fun HomeScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 items(expenses.take(5), key = { it.id }) { expense ->
-                    ExpenseCard(expense = expense, onDelete = {}, onEdit = { onEditExpense(expense) })
+                    ExpenseCard(expense = expense, currencyFormatter = currencyFormatter, onDelete = {}, onEdit = { onEditExpense(expense) })
                 }
             }
         }
@@ -567,7 +656,7 @@ fun HomeScreen(
                     onValueChange = { budgetInput = it },
                     label = { Text("Budget") },
                     singleLine = true,
-                    prefix = { Text("$") }
+                    prefix = { Text(currencyFormatter.currency?.symbol ?: "$") }
                 )
             },
             confirmButton = {
@@ -593,6 +682,7 @@ fun HomeScreen(
 @Composable
 fun ExpensesListScreen(
     expenses: List<Expense>,
+    currencyFormatter: NumberFormat,
     onDelete: (Expense) -> Unit,
     onEdit: (Expense) -> Unit
 ) {
@@ -665,7 +755,7 @@ fun ExpensesListScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredExpenses, key = { it.id }) { expense ->
-                    ExpenseCard(expense = expense, onDelete = { onDelete(expense) }, onEdit = { onEdit(expense) })
+                    ExpenseCard(expense = expense, currencyFormatter = currencyFormatter, onDelete = { onDelete(expense) }, onEdit = { onEdit(expense) })
                 }
             }
         }
@@ -674,8 +764,7 @@ fun ExpensesListScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExpenseCard(expense: Expense, onDelete: () -> Unit, onEdit: () -> Unit) {
-    val currencyFormat = NumberFormat.getCurrencyInstance()
+fun ExpenseCard(expense: Expense, currencyFormatter: NumberFormat, onDelete: () -> Unit, onEdit: () -> Unit) {
     val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
     SwipeToDismissBox(
@@ -749,7 +838,7 @@ fun ExpenseCard(expense: Expense, onDelete: () -> Unit, onEdit: () -> Unit) {
                     }
                 }
                 Text(
-                    text = currencyFormat.format(expense.amount),
+                    text = currencyFormatter.format(expense.amount),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Black
@@ -761,7 +850,8 @@ fun ExpenseCard(expense: Expense, onDelete: () -> Unit, onEdit: () -> Unit) {
 
 @Composable
 fun ReportsScreen(
-    expenses: List<Expense>
+    expenses: List<Expense>,
+    currencyFormatter: NumberFormat
 ) {
     val categoryTotals = expenses
         .groupBy { it.category }
@@ -770,7 +860,6 @@ fun ReportsScreen(
         .sortedByDescending { it.second }
         
     val totalSpent = expenses.sumOf { it.amount }
-    val currencyFormat = NumberFormat.getCurrencyInstance()
 
     Column(
         modifier = Modifier
@@ -816,7 +905,7 @@ fun ReportsScreen(
                         Text("Total Spent", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = currencyFormat.format(totalSpent), 
+                            text = currencyFormatter.format(totalSpent), 
                             style = MaterialTheme.typography.titleLarge, 
                             fontWeight = FontWeight.Black, 
                             color = MaterialTheme.colorScheme.onSurface
@@ -835,7 +924,7 @@ fun ReportsScreen(
             ) {
                 items(categoryTotals) { (category, total) ->
                     val percentage = if (totalSpent > 0) (total / totalSpent).toFloat() else 0f
-                    CategoryReportItem(category, total, percentage)
+                    CategoryReportItem(category, total, percentage, currencyFormatter)
                 }
             }
         }
@@ -843,8 +932,7 @@ fun ReportsScreen(
 }
 
 @Composable
-fun CategoryReportItem(category: String, total: Double, percentage: Float) {
-    val currencyFormat = NumberFormat.getCurrencyInstance()
+fun CategoryReportItem(category: String, total: Double, percentage: Float, currencyFormatter: NumberFormat) {
     val catColor = CategoryUtils.getCategoryColor(category)
     val catIcon = CategoryUtils.getCategoryIcon(category)
     
@@ -870,7 +958,7 @@ fun CategoryReportItem(category: String, total: Double, percentage: Float) {
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(category, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
-            Text(currencyFormat.format(total), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(currencyFormatter.format(total), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
         Spacer(modifier = Modifier.height(12.dp))
         LinearProgressIndicator(
@@ -887,13 +975,26 @@ fun CategoryReportItem(category: String, total: Double, percentage: Float) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExpenseDialog(expense: Expense?, onDismiss: () -> Unit, onSave: (Double, String, String) -> Unit) {
+fun ExpenseDialog(
+    expense: Expense?,
+    currencyCode: String,
+    onDismiss: () -> Unit,
+    onSave: (Double, String, String) -> Unit
+) {
     var amountStr by remember { mutableStateOf(expense?.amount?.toString() ?: "") }
     var category by remember { mutableStateOf(expense?.category ?: "") }
     var description by remember { mutableStateOf(expense?.description ?: "") }
     
     val categories = CategoryUtils.categories
     var expanded by remember { mutableStateOf(false) }
+    
+    val currencySymbol = remember(currencyCode) {
+        try {
+            Currency.getInstance(currencyCode).symbol
+        } catch (e: Exception) {
+            "$"
+        }
+    }
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -904,7 +1005,7 @@ fun ExpenseDialog(expense: Expense?, onDismiss: () -> Unit, onSave: (Double, Str
                     value = amountStr,
                     onValueChange = { amountStr = it },
                     label = { Text("Amount") },
-                    prefix = { Text("$") },
+                    prefix = { Text(currencySymbol) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
@@ -963,136 +1064,6 @@ fun ExpenseDialog(expense: Expense?, onDismiss: () -> Unit, onSave: (Double, Str
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@Composable
-fun SettingsScreen(
-    isDarkMode: Boolean,
-    onUpdateDarkMode: (Boolean) -> Unit
-) {
-    var showBackupDialog by remember { mutableStateOf(false) }
-    var showRestoreDialog by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        // Appearance
-        Text("Appearance", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text("Dark Mode", style = MaterialTheme.typography.titleMedium)
-                Text("Toggle dark theme", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(
-                checked = isDarkMode,
-                onCheckedChange = onUpdateDarkMode
-            )
-        }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 8.dp))
-
-        // Data & Security
-        Text("Data & Security", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            onClick = { showBackupDialog = true },
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-        ) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Share, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text("Backup Data", style = MaterialTheme.typography.titleMedium)
-                    Text("Create an encrypted backup", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            onClick = { showRestoreDialog = true },
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-        ) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text("Restore Data", style = MaterialTheme.typography.titleMedium)
-                    Text("Restore from encrypted backup", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
-
-    if (showBackupDialog) {
-        PasswordDialog(
-            title = "Backup Data",
-            message = "Enter a master password to encrypt your backup.",
-            onConfirm = { password ->
-                // Implementation for backup
-                showBackupDialog = false
-            },
-            onDismiss = { showBackupDialog = false }
-        )
-    }
-
-    if (showRestoreDialog) {
-        PasswordDialog(
-            title = "Restore Data",
-            message = "Enter the master password used to encrypt the backup.",
-            onConfirm = { password ->
-                // Implementation for restore
-                showRestoreDialog = false
-            },
-            onDismiss = { showRestoreDialog = false }
-        )
-    }
-}
-
-@Composable
-fun PasswordDialog(
-    title: String,
-    message: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var password by remember { mutableStateOf("") }
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                Text(message, modifier = Modifier.padding(bottom = 16.dp))
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Master Password") },
-                    singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(password) }, enabled = password.isNotBlank()) {
-                Text("Confirm")
             }
         },
         dismissButton = {
