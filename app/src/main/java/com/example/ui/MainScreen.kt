@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,6 +49,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.data.Expense
 import com.example.util.ExportUtils
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -56,7 +59,7 @@ import java.util.*
 fun MainScreen(viewModel: ExpenseViewModel) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: "home"
+    val currentRoute = navBackStackEntry?.destination?.route ?: "main"
     
     val context = LocalContext.current
     val expenses by viewModel.uiState.collectAsStateWithLifecycle()
@@ -73,6 +76,10 @@ fun MainScreen(viewModel: ExpenseViewModel) {
     var showProfileHub by remember { mutableStateOf(false) }
     var showCurrencySelector by remember { mutableStateOf(false) }
 
+    val tabs = remember { listOf("home", "expenses", "reports", "analytics", "planner") }
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val coroutineScope = rememberCoroutineScope()
+
     val currencyFormatter = remember(selectedCurrency) {
         val format = NumberFormat.getCurrencyInstance()
         try {
@@ -80,12 +87,12 @@ fun MainScreen(viewModel: ExpenseViewModel) {
             format.currency = curr
             // Force using only the symbol by stripping the country/ISO code prefix
             val symbols = (format as java.text.DecimalFormat).decimalFormatSymbols
-            val fullSymbol = curr.getSymbol(Locale.getDefault())
+            val fullSymbol = curr.getSymbol(Locale.US) // Try US locale first for narrow symbols
             symbols.currencySymbol = fullSymbol
                 .replace(selectedCurrency, "") // Remove "USD"
-                .replace(selectedCurrency.substring(0, 2), "") // Remove "US"
+                .replace(selectedCurrency.take(2), "") // Remove "US"
                 .trim()
-                .ifEmpty { fullSymbol }
+                .ifEmpty { "$" }
             format.decimalFormatSymbols = symbols
         } catch (_: Exception) {
             format.currency = Currency.getInstance("USD")
@@ -99,28 +106,32 @@ fun MainScreen(viewModel: ExpenseViewModel) {
         topBar = {
             if (currentRoute != "settings") {
                 TopAppBar(
-                    modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
+                    modifier = Modifier.statusBarsPadding().padding(top = 8.dp, bottom = 8.dp),
                     title = { 
-                        Text(
-                            text = when (currentRoute) {
+                        val title = if (currentRoute == "main") {
+                            when (tabs[pagerState.currentPage]) {
                                 "home" -> "Dashboard"
                                 "expenses" -> "Expenses"
                                 "analytics" -> "Analysis"
                                 "planner" -> "Budget Planner"
                                 else -> "Reports"
-                            },
+                            }
+                        } else "Settings"
+                        Text(
+                            text = title,
                             fontWeight = FontWeight.Medium,
                             style = MaterialTheme.typography.headlineMedium
                         ) 
                     },
                     actions = {
-                        if (currentRoute != "home") {
+                        val activeTab = if (currentRoute == "main") tabs[pagerState.currentPage] else ""
+                        if (activeTab != "home" && activeTab != "analytics" && activeTab != "planner" && currentRoute == "main") {
                             MonthYearSelectorIcon(
                                 selectedMonth = selectedMonth,
                                 onMonthSelected = { y, m -> viewModel.setMonth(y, m) }
                             )
                         }
-                        if (currentRoute == "expenses") {
+                        if (activeTab == "expenses") {
                             IconButton(onClick = { ExportUtils.shareCsvAsText(context, expenses) }) {
                                 Icon(Icons.Default.Share, contentDescription = "Export to CSV")
                             }
@@ -156,190 +167,134 @@ fun MainScreen(viewModel: ExpenseViewModel) {
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
+                        containerColor = Color.Transparent,
                         scrolledContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
                     ),
                     scrollBehavior = scrollBehavior
                 )
             }
         },
-        bottomBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.height(56.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IconButton(
-                            onClick = {
-                                if (currentRoute != "home") {
-                                    navController.navigate("home") {
-                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                Icons.Default.Home, 
-                                contentDescription = "Home",
-                                tint = if (currentRoute == "home") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        
-                        IconButton(
-                            onClick = {
-                                if (currentRoute != "expenses") {
-                                    navController.navigate("expenses") {
-                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                Icons.Default.List, 
-                                contentDescription = "Expenses List",
-                                tint = if (currentRoute == "expenses") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        
-                        IconButton(
-                            onClick = {
-                                if (currentRoute != "reports") {
-                                    navController.navigate("reports") {
-                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                Icons.Default.Analytics, 
-                                contentDescription = "Reports",
-                                tint = if (currentRoute == "reports") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                if (currentRoute != "analytics") {
-                                    navController.navigate("analytics") {
-                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                Icons.Default.BarChart, 
-                                contentDescription = "Analysis",
-                                tint = if (currentRoute == "analytics") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                if (currentRoute != "planner") {
-                                    navController.navigate("planner") {
-                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                Icons.Default.AccountBalanceWallet, 
-                                contentDescription = "Planner",
-                                tint = if (currentRoute == "planner") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        },
+        containerColor = Color.Transparent,
         floatingActionButton = {
-            if (currentRoute == "expenses" || currentRoute == "home") {
+            val activeTab = if (currentRoute == "main") tabs[pagerState.currentPage] else ""
+            if (activeTab == "expenses" || activeTab == "home") {
                 LargeFloatingActionButton(
                     onClick = { showAddDialog = true },
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    shape = RoundedCornerShape(24.dp)
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.padding(bottom = 80.dp) // Lift FAB above floating navbar
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Add Expense", modifier = Modifier.size(32.dp))
                 }
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable("home") {
-                HomeScreen(
-                    expenses = expenses,
-                    budget = budget,
-                    selectedMonth = selectedMonth,
-                    currencyFormatter = currencyFormatter,
-                    onUpdateBudget = { viewModel.updateBudget(it) },
-                    onMonthSelected = { y, m -> viewModel.setMonth(y, m) },
-                    onEditExpense = { expense -> expenseToEdit = expense }
-                )
-            }
-            composable("expenses") {
-                ExpensesListScreen(
-                    expenses = expenses,
-                    currencyFormatter = currencyFormatter,
-                    onDelete = { viewModel.deleteExpense(it.id) },
-                    onEdit = { expense ->
-                        expenseToEdit = expense
+        Box(modifier = Modifier.fillMaxSize()) {
+            NavHost(
+                navController = navController,
+                startDestination = "main",
+                modifier = Modifier.padding(top = innerPadding.calculateTopPadding())
+            ) {
+                composable("main") {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        when (tabs[page]) {
+                            "home" -> HomeScreen(
+                                expenses = expenses,
+                                budget = budget,
+                                selectedMonth = selectedMonth,
+                                currencyFormatter = currencyFormatter,
+                                onUpdateBudget = { viewModel.updateBudget(it) },
+                                onMonthSelected = { y, m -> viewModel.setMonth(y, m) },
+                                onEditExpense = { expense -> expenseToEdit = expense }
+                            )
+                            "expenses" -> ExpensesListScreen(
+                                expenses = expenses,
+                                currencyFormatter = currencyFormatter,
+                                onDelete = { viewModel.deleteExpense(it.id) },
+                                onEdit = { expense ->
+                                    expenseToEdit = expense
+                                }
+                            )
+                            "reports" -> ReportsScreen(
+                                expenses = expenses,
+                                currencyFormatter = currencyFormatter
+                            )
+                            "analytics" -> AnalyticsScreen(
+                                expenses = expenses,
+                                currencyFormatter = currencyFormatter
+                            )
+                            "planner" -> {
+                                val categoryBudgets by viewModel.categoryBudgets.collectAsStateWithLifecycle()
+                                BudgetPlannerScreen(
+                                    expenses = expenses,
+                                    categoryBudgets = categoryBudgets,
+                                    onUpdateCategoryBudget = { cat, amt -> viewModel.updateCategoryBudget(cat, amt) },
+                                    currencyFormatter = currencyFormatter
+                                )
+                            }
+                        }
                     }
-                )
+                }
+                composable("settings") {
+                    SettingsScreen(
+                        isDarkMode = isDarkMode,
+                        onUpdateDarkMode = { viewModel.updateDarkMode(it) },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             }
-            composable("reports") {
-                ReportsScreen(
-                    expenses = expenses,
-                    currencyFormatter = currencyFormatter
-                )
-            }
-            composable("analytics") {
-                AnalyticsScreen(
-                    expenses = expenses,
-                    currencyFormatter = currencyFormatter
-                )
-            }
-            composable("planner") {
-                val categoryBudgets by viewModel.categoryBudgets.collectAsStateWithLifecycle()
-                BudgetPlannerScreen(
-                    expenses = expenses,
-                    categoryBudgets = categoryBudgets,
-                    onUpdateCategoryBudget = { cat, amt -> viewModel.updateCategoryBudget(cat, amt) },
-                    currencyFormatter = currencyFormatter
-                )
-            }
-            composable("settings") {
-                SettingsScreen(
-                    isDarkMode = isDarkMode,
-                    onUpdateDarkMode = { viewModel.updateDarkMode(it) },
-                    onBack = { navController.popBackStack() }
-                )
+
+            // Floating Navigation Bar
+            if (currentRoute == "main") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.height(64.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            tabs.forEachIndexed { index, route ->
+                                val icon = when (route) {
+                                    "home" -> Icons.Default.Home
+                                    "expenses" -> Icons.Default.List
+                                    "reports" -> Icons.Default.Analytics
+                                    "analytics" -> Icons.Default.BarChart
+                                    else -> Icons.Default.AccountBalanceWallet
+                                }
+                                val isSelected = pagerState.currentPage == index
+                                IconButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        icon,
+                                        contentDescription = route,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         
@@ -640,10 +595,11 @@ fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        
+        Spacer(Modifier.height(16.dp))
         // Budget & Balance Card
         ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
@@ -721,15 +677,16 @@ fun HomeScreen(
                 Text("No recent expenses.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(
+            Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                items(expenses.take(5), key = { it.id }) { expense ->
+                expenses.take(5).forEach { expense ->
                     ExpenseCard(expense = expense, currencyFormatter = currencyFormatter, onDelete = {}, onEdit = { onEditExpense(expense) })
                 }
             }
         }
+        Spacer(Modifier.height(100.dp)) // Bottom padding for floating navbar
     }
     
     if (showBudgetDialog) {
@@ -838,7 +795,7 @@ fun ExpensesListScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 100.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredExpenses, key = { it.id }) { expense ->
@@ -1007,7 +964,8 @@ fun ReportsScreen(
             
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(bottom = 100.dp)
             ) {
                 items(categoryTotals) { (category, total) ->
                     val percentage = if (totalSpent > 0) (total / totalSpent).toFloat() else 0f
@@ -1187,7 +1145,7 @@ fun AnalyticsScreen(
             }
         }
         
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(100.dp))
     }
 }
 
@@ -1220,7 +1178,8 @@ fun BudgetPlannerScreen(
 
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = 100.dp)
         ) {
             items(categories) { category ->
                 val budget = categoryBudgets[category] ?: 0.0
@@ -1348,12 +1307,12 @@ fun ExpenseDialog(
     val currencySymbol = remember(currencyCode) {
         try {
             val curr = Currency.getInstance(currencyCode)
-            val fullSymbol = curr.getSymbol(Locale.getDefault())
+            val fullSymbol = curr.getSymbol(Locale.US)
             fullSymbol
-                .replace(currencyCode, "") // Remove ISO code
-                .replace(currencyCode.substring(0, 2), "") // Remove country code
+                .replace(currencyCode, "") // Remove "USD"
+                .replace(currencyCode.take(2), "") // Remove "US"
                 .trim()
-                .ifEmpty { fullSymbol }
+                .ifEmpty { "$" }
         } catch (_: Exception) {
             "$"
         }
