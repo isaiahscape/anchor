@@ -1,0 +1,6 @@
+{
+  "name": "Anchor",
+  "description": "An expense tracker app that categorizes expenses by tags and generates monthly spending reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
