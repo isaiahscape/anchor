@@ -27,6 +27,27 @@ class ExpenseRepository(private val expenseDao: ExpenseDao, context: Context) {
     private val _selectedCurrency = MutableStateFlow(sharedPrefs.getString("selected_currency", "USD") ?: "USD")
     val selectedCurrency: StateFlow<String> = _selectedCurrency.asStateFlow()
 
+    private val _categoryBudgets = MutableStateFlow(loadCategoryBudgets())
+    val categoryBudgets: StateFlow<Map<String, Double>> = _categoryBudgets.asStateFlow()
+
+    private fun loadCategoryBudgets(): Map<String, Double> {
+        val budgets = mutableMapOf<String, Double>()
+        sharedPrefs.all.forEach { (key, value) ->
+            if (key.startsWith("budget_")) {
+                val category = key.removePrefix("budget_")
+                budgets[category] = (value as? Float)?.toDouble() ?: 0.0
+            }
+        }
+        return budgets
+    }
+
+    fun updateCategoryBudget(category: String, amount: Double) {
+        sharedPrefs.edit().putFloat("budget_$category", amount.toFloat()).apply()
+        val current = _categoryBudgets.value.toMutableMap()
+        current[category] = amount
+        _categoryBudgets.value = current
+    }
+
     fun updateBudget(newBudget: Double) {
         sharedPrefs.edit().putFloat("monthly_budget", newBudget.toFloat()).apply()
         _monthlyBudget.value = newBudget

@@ -2,6 +2,8 @@ package com.example.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,6 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
@@ -73,7 +77,7 @@ fun MainScreen(viewModel: ExpenseViewModel) {
         NumberFormat.getCurrencyInstance().apply {
             currency = try {
                 Currency.getInstance(selectedCurrency)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 Currency.getInstance("USD")
             }
         }
@@ -91,6 +95,8 @@ fun MainScreen(viewModel: ExpenseViewModel) {
                             text = when (currentRoute) {
                                 "home" -> "Dashboard"
                                 "expenses" -> "Expenses"
+                                "analytics" -> "Analysis"
+                                "planner" -> "Budget Planner"
                                 else -> "Reports"
                             },
                             fontWeight = FontWeight.Medium,
@@ -218,6 +224,42 @@ fun MainScreen(viewModel: ExpenseViewModel) {
                                 tint = if (currentRoute == "reports") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+
+                        IconButton(
+                            onClick = {
+                                if (currentRoute != "analytics") {
+                                    navController.navigate("analytics") {
+                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.BarChart, 
+                                contentDescription = "Analysis",
+                                tint = if (currentRoute == "analytics") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (currentRoute != "planner") {
+                                    navController.navigate("planner") {
+                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.AccountBalanceWallet, 
+                                contentDescription = "Planner",
+                                tint = if (currentRoute == "planner") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -264,6 +306,21 @@ fun MainScreen(viewModel: ExpenseViewModel) {
             composable("reports") {
                 ReportsScreen(
                     expenses = expenses,
+                    currencyFormatter = currencyFormatter
+                )
+            }
+            composable("analytics") {
+                AnalyticsScreen(
+                    expenses = expenses,
+                    currencyFormatter = currencyFormatter
+                )
+            }
+            composable("planner") {
+                val categoryBudgets by viewModel.categoryBudgets.collectAsStateWithLifecycle()
+                BudgetPlannerScreen(
+                    expenses = expenses,
+                    categoryBudgets = categoryBudgets,
+                    onUpdateCategoryBudget = { cat, amt -> viewModel.updateCategoryBudget(cat, amt) },
                     currencyFormatter = currencyFormatter
                 )
             }
@@ -973,6 +1030,276 @@ fun CategoryReportItem(category: String, total: Double, percentage: Float, curre
     }
 }
 
+@Composable
+fun AnalyticsScreen(
+    expenses: List<Expense>,
+    currencyFormatter: NumberFormat
+) {
+    val categoryTotals = expenses
+        .groupBy { it.category }
+        .mapValues { entry -> entry.value.sumOf { it.amount } }
+        .toList()
+        .sortedByDescending { it.second }
+        
+    val totalSpent = expenses.sumOf { it.amount }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text(
+            "Spending Trends",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
+
+        // Simple Bar Chart
+        ElevatedCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(250.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    categoryTotals.forEach { (category, total) ->
+                        val barHeight = if (totalSpent > 0) (total / totalSpent).toFloat() else 0f
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom,
+                            modifier = Modifier.fillMaxHeight().weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.6f)
+                                    .fillMaxHeight(barHeight.coerceAtLeast(0.05f))
+                                    .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                                    .background(CategoryUtils.getCategoryColor(category))
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Icon(
+                                CategoryUtils.getCategoryIcon(category),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            "Category Distribution",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Pie Chart with Legend
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(150.dp).weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                    var startAngle = -90f
+                    categoryTotals.forEach { (category, total) ->
+                        val sweep = if (totalSpent > 0) (total / totalSpent).toFloat() * 360f else 0f
+                        drawArc(
+                            color = CategoryUtils.getCategoryColor(category),
+                            startAngle = startAngle,
+                            sweepAngle = sweep,
+                            useCenter = true
+                        )
+                        startAngle += sweep
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(24.dp))
+
+            Column(modifier = Modifier.weight(1.2f)) {
+                categoryTotals.take(4).forEach { (category, _) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(CategoryUtils.getCategoryColor(category))
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = category,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+fun BudgetPlannerScreen(
+    expenses: List<Expense>,
+    categoryBudgets: Map<String, Double>,
+    onUpdateCategoryBudget: (String, Double) -> Unit,
+    currencyFormatter: NumberFormat
+) {
+    val categories = CategoryUtils.categories
+    val categoryTotals = expenses
+        .groupBy { it.category }
+        .mapValues { entry -> entry.value.sumOf { it.amount } }
+
+    var editingCategory by remember { mutableStateOf<String?>(null) }
+    var budgetInput by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+    ) {
+        Text(
+            "Category Budgets",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
+
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            items(categories) { category ->
+                val budget = categoryBudgets[category] ?: 0.0
+                val spent = categoryTotals[category] ?: 0.0
+                val progress = if (budget > 0) (spent / budget).toFloat().coerceIn(0f, 1.2f) else 0f
+                val color = CategoryUtils.getCategoryColor(category)
+
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    onClick = {
+                        editingCategory = category
+                        budgetInput = budget.toString()
+                    }
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = color.copy(alpha = 0.2f),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        CategoryUtils.getCategoryIcon(category),
+                                        contentDescription = null,
+                                        tint = color,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(category, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    currencyFormatter.format(spent),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "of ${currencyFormatter.format(budget)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        LinearProgressIndicator(
+                            progress = { progress.coerceAtMost(1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(50)),
+                            color = if (progress > 1f) MaterialTheme.colorScheme.error else color,
+                            trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
+                        )
+                        
+                        if (progress > 1f) {
+                            Text(
+                                "Over budget by ${currencyFormatter.format(spent - budget)}",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (editingCategory != null) {
+        AlertDialog(
+            onDismissRequest = { editingCategory = null },
+            title = { Text("Set Budget for $editingCategory") },
+            text = {
+                OutlinedTextField(
+                    value = budgetInput,
+                    onValueChange = { budgetInput = it },
+                    label = { Text("Budget Amount") },
+                    singleLine = true,
+                    prefix = { Text(currencyFormatter.currency?.symbol ?: "$") }
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val amount = budgetInput.toDoubleOrNull() ?: 0.0
+                    onUpdateCategoryBudget(editingCategory!!, amount)
+                    editingCategory = null
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingCategory = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpenseDialog(
@@ -991,7 +1318,7 @@ fun ExpenseDialog(
     val currencySymbol = remember(currencyCode) {
         try {
             Currency.getInstance(currencyCode).symbol
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             "$"
         }
     }
