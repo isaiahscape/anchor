@@ -74,13 +74,23 @@ fun MainScreen(viewModel: ExpenseViewModel) {
     var showCurrencySelector by remember { mutableStateOf(false) }
 
     val currencyFormatter = remember(selectedCurrency) {
-        NumberFormat.getCurrencyInstance().apply {
-            currency = try {
-                Currency.getInstance(selectedCurrency)
-            } catch (_: Exception) {
-                Currency.getInstance("USD")
-            }
+        val format = NumberFormat.getCurrencyInstance()
+        try {
+            val curr = Currency.getInstance(selectedCurrency)
+            format.currency = curr
+            // Force using only the symbol by stripping the country/ISO code prefix
+            val symbols = (format as java.text.DecimalFormat).decimalFormatSymbols
+            val fullSymbol = curr.getSymbol(Locale.getDefault())
+            symbols.currencySymbol = fullSymbol
+                .replace(selectedCurrency, "") // Remove "USD"
+                .replace(selectedCurrency.substring(0, 2), "") // Remove "US"
+                .trim()
+                .ifEmpty { fullSymbol }
+            format.decimalFormatSymbols = symbols
+        } catch (_: Exception) {
+            format.currency = Currency.getInstance("USD")
         }
+        format
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -384,18 +394,25 @@ fun CurrencySelectorBottomSheet(
     onCurrencySelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState()
-    val currencies = listOf(
-        "USD" to "US Dollar ($)",
-        "EUR" to "Euro (€)",
-        "GBP" to "British Pound (£)",
-        "JPY" to "Japanese Yen (¥)",
-        "IDR" to "Indonesian Rupiah (Rp)",
-        "AUD" to "Australian Dollar ($)",
-        "CAD" to "Canadian Dollar ($)",
-        "CNY" to "Chinese Yuan (¥)",
-        "INR" to "Indian Rupee (₹)"
-    )
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var searchQuery by remember { mutableStateOf("") }
+    
+    val allCurrencies = remember {
+        Currency.getAvailableCurrencies()
+            .sortedBy { it.currencyCode }
+            .map { it to it.getDisplayName(Locale.getDefault()) }
+    }
+    
+    val filteredCurrencies = remember(searchQuery) {
+        if (searchQuery.isBlank()) {
+            allCurrencies
+        } else {
+            allCurrencies.filter { (curr, name) ->
+                curr.currencyCode.contains(searchQuery, ignoreCase = true) ||
+                        name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -406,6 +423,7 @@ fun CurrencySelectorBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.8f) // Limit height since it's a long list
                 .padding(bottom = 32.dp)
         ) {
             Text(
@@ -415,18 +433,30 @@ fun CurrencySelectorBottomSheet(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
             )
             
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                placeholder = { Text("Search by code or name") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            
             LazyColumn {
-                items(currencies) { (code, name) ->
+                items(filteredCurrencies) { (curr, name) ->
                     ListItem(
                         headlineContent = { Text(name) },
-                        supportingContent = { Text(code) },
+                        supportingContent = { Text("${curr.currencyCode} (${curr.getSymbol(Locale.getDefault())})") },
                         leadingContent = {
                             RadioButton(
-                                selected = selectedCurrency == code,
+                                selected = selectedCurrency == curr.currencyCode,
                                 onClick = null
                             )
                         },
-                        modifier = Modifier.clickable { onCurrencySelected(code) }
+                        modifier = Modifier.clickable { onCurrencySelected(curr.currencyCode) }
                     )
                 }
             }
@@ -1317,7 +1347,13 @@ fun ExpenseDialog(
     
     val currencySymbol = remember(currencyCode) {
         try {
-            Currency.getInstance(currencyCode).symbol
+            val curr = Currency.getInstance(currencyCode)
+            val fullSymbol = curr.getSymbol(Locale.getDefault())
+            fullSymbol
+                .replace(currencyCode, "") // Remove ISO code
+                .replace(currencyCode.substring(0, 2), "") // Remove country code
+                .trim()
+                .ifEmpty { fullSymbol }
         } catch (_: Exception) {
             "$"
         }
